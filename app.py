@@ -141,4 +141,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="PCB Defect Detection") as demo:
     | Spurious Copper | 🟢 Minor | Unwanted copper deposits |
     """)
 
-demo.launch()
+demo.launch(
+    server_name="0.0.0.0",
+    server_port=10000
+)
