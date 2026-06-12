@@ -1,12 +1,19 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
 import gradio as gr
 import cv2
 import numpy as np
-from ultralytics import YOLO
-import os
+import torch
+torch.set_num_threads(1)
 
-# Load model
-model = YOLO("model/best.pt")
+from ultralytics import YOLO
+
+# Load model (use "best.pt" if uploaded to root, "model/best.pt" if in subfolder)
+MODEL_PATH = "best.pt"
+model = YOLO(MODEL_PATH)
+model.to("cpu")
 
 def get_severity(class_name, confidence, box_area, image_area):
     severity_map = {
@@ -34,17 +41,24 @@ def get_severity(class_name, confidence, box_area, image_area):
     reason = root_cause.get(class_name, "Unknown cause")
     return level, score, reason, size_note
 
+
 def detect_defects(image):
     if image is None:
         return None, None, "⚠️ Please upload a PCB image."
 
-    temp_path = "temp_input.jpg"
-    cv2.imwrite(temp_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    # Resize large images to save memory
+    max_dim = 640
+    h0, w0 = image.shape[:2]
+    if max(h0, w0) > max_dim:
+        scale = max_dim / max(h0, w0)
+        image = cv2.resize(image, (int(w0 * scale), int(h0 * scale)))
 
     img_rgb = image.copy()
     h, w    = img_rgb.shape[:2]
 
-    results = model.predict(source=temp_path, conf=0.45, iou=0.45, verbose=False)
+    img_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    results = model.predict(source=img_bgr, conf=0.45, iou=0.45, verbose=False, imgsz=640)
     result  = results[0]
 
     # Detection image
@@ -103,6 +117,7 @@ def detect_defects(image):
 
     return det_img, overlay, report
 
+
 # ── Gradio UI ──
 with gr.Blocks(theme=gr.themes.Soft(), title="PCB Defect Detection") as demo:
     gr.Markdown("""
@@ -141,7 +156,8 @@ with gr.Blocks(theme=gr.themes.Soft(), title="PCB Defect Detection") as demo:
     | Spurious Copper | 🟢 Minor | Unwanted copper deposits |
     """)
 
-demo.launch(
-    server_name="0.0.0.0",
-    server_port=int(os.environ.get("PORT", 10000))
-)
+if __name__ == "__main__":
+    demo.queue(max_size=5).launch(
+        server_name="0.0.0.0",
+        server_port=int(os.environ.get("PORT", 10000))
+    )
